@@ -69,17 +69,34 @@ openssl rand -base64 32
 Where to set them:
 
 - **Docker self-hosting:** `.env`
-- **Cloudflare:** the Workers dashboard (as secrets)
+- **Cloudflare:** `.env.selfhost`
 - **Local development:** `.env.local`
+
+On Cloudflare, do **not** set these in the Workers dashboard. The Alchemy stack
+reconciles the worker's vars and secrets on every deploy, so a dashboard-set
+value is wiped by the next `pnpm deploy:selfhost`. `.env.selfhost` is the source
+of truth; it is gitignored.
 
 ## 5) Restart and connect
 
-Restart OpenSEO so it picks up the new variables. For Docker, changing `.env`
-means Compose has to recreate the container to reapply it:
+Restart OpenSEO so it picks up the new variables.
+
+For Docker, changing `.env` means Compose has to recreate the container to
+reapply it:
 
 ```bash
 docker compose up -d --force-recreate open-seo
 ```
+
+For Cloudflare, redeploy:
+
+```bash
+pnpm deploy:selfhost --yes
+```
+
+The deploy plan should list the three values as updates, for example
+`[open-seo/GOOGLE_CLIENT_SECRET] update`. If they show as `noop`, the env file
+was not picked up.
 
 Then open **Integrations**, click **Connect with Google**, authorize the Google
 account that owns your verified property, and pick the property to bind to your
@@ -97,7 +114,22 @@ project.
 
 **`redirect_uri_mismatch` from Google** — the redirect URI in your OAuth client
 must exactly equal `<your-origin>/api/gsc/oauth/callback`. Re-check scheme
-(`http` vs `https`), host, port, and that there's no trailing slash.
+(`http` vs `https`), host, port, and that there's no trailing slash. Also make
+sure it went under **Authorized redirect URIs** and not **Authorized JavaScript
+origins** — the latter rejects paths.
+
+If the URI is registered correctly and the error persists, it is propagation
+delay on Google's side, not a misconfiguration. The Cloud Console states that
+changes take between five minutes and several hours to take effect; retry once
+after a wait rather than repeatedly. Google's error page renders this as "this
+app doesn't comply with Google's OAuth 2.0 policies", which is the same
+condition — the `authError` payload still decodes to `redirect_uri_mismatch`.
+
+**The deploy looked successful but the variables are still missing** (Cloudflare)
+— `pnpm alchemy deploy` without `--yes` stops at its approval prompt, prints
+`Non-interactive terminal detected. Pass --yes to approve`, and **exits 0**. The
+plan is printed, so the output resembles a successful run. Always deploy with
+`pnpm deploy:selfhost --yes` and confirm the run ends with `Done: N succeeded`.
 
 **"Google OAuth client not configured" / "not configured for Search Console yet"**
 (in the app or via the MCP tools) — one of `GOOGLE_CLIENT_ID`,
