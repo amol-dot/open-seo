@@ -60,6 +60,24 @@ This provisions the D1 database, KV namespaces, and R2 bucket, applies the datab
 
 To manage the Access application yourself instead, set `TEAM_DOMAIN` (`https://your-team.cloudflareaccess.com`) and `POLICY_AUD` (the application's audience tag) in `.env.selfhost` — the deploy then provisions no Access resources.
 
+### Custom hostname and data location (optional)
+
+By default the Worker answers on `open-seo-selfhost.<your-subdomain>.workers.dev`. To serve OpenSEO on your own hostname, add it to `.env.selfhost` before deploying:
+
+```bash
+SELFHOST_DOMAIN=seo.example.com
+```
+
+The zone (`example.com` here) must already be on the same Cloudflare account. The deploy binds the hostname to the Worker, creates the DNS record, points the auto-provisioned Access application at it, and turns the workers.dev URL off so the Access-gated hostname is the only way in. Several hostnames can be comma-separated; the first one becomes the app URL. If you manage the Access application yourself (`TEAM_DOMAIN` + `POLICY_AUD`), make sure it covers the hostname.
+
+To choose where your data lives, set a location hint before the first deploy:
+
+```bash
+SELFHOST_LOCATION_HINT=weur   # wnam, enam, weur, eeur, apac, or oc
+```
+
+D1 keeps the primary database copy and R2 stores objects in that region. Cloudflare fixes the location when the database is created, so set this on the first deploy or leave it unset.
+
 ## 5) Validate setup
 
 1. Open the Worker URL printed at the end of the deploy.

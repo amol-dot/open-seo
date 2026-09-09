@@ -15,6 +15,11 @@ import {
   requireAllowedEmails,
   workerName,
 } from "./alchemy.access.ts";
+import {
+  type LocationHint,
+  readSelfHostDomains,
+  readSelfHostLocationHint,
+} from "./alchemy.selfhost.ts";
 
 // Preview hostnames are `open-seo-<stage>.<WORKERS_SUBDOMAIN>` — the naming
 // lives in alchemy.access.ts, shared with the Access wildcard the security
@@ -79,7 +84,7 @@ const PROD_NAMES = {
   hyperdrive: "openseo",
 } as const;
 
-const makeResources = (stage: string) => {
+const makeResources = (stage: string, locationHint?: LocationHint) => {
   const prod = stage === HOSTED_PROD_STAGE;
   // Prod adopts the LIVE resources; retain makes `alchemy destroy --stage
   // hosted-prod` (or an orphaning refactor) forget state instead of deleting
@@ -92,11 +97,15 @@ const makeResources = (stage: string) => {
       // wrangler-compatible table prod already uses.
       migrationsDir: "drizzle",
       migrationsTable: "d1_migrations",
+      // Self-host data location (SELFHOST_LOCATION_HINT). Prod adopts an
+      // existing database, so it never passes one.
+      ...(locationHint && !prod ? { primaryLocationHint: locationHint } : {}),
     }).pipe(keep),
     R2: Cloudflare.R2.Bucket("R2", {
       name: prod ? PROD_NAMES.r2 : `open-seo-r2-${stage}`,
       // Expire cached DataForSEO responses. Prod's lifecycle rules are
       // dashboard-managed; its props stay omitted so alchemy leaves them be.
+      ...(locationHint && !prod ? { locationHint } : {}),
       ...(prod
         ? {}
         : {
@@ -175,6 +184,7 @@ const resolveSelfHostAccess = (
   stage: string,
   provision: boolean,
   workersSubdomain: string,
+  customDomains: string[],
 ) =>
   Effect.gen(function* () {
     let teamDomain = yield* optionalVar("TEAM_DOMAIN");
@@ -186,7 +196,8 @@ const resolveSelfHostAccess = (
 
     // The workers.dev subdomain names both the Access application's hostname
     // (which must exist before the Worker resource does) and an auto-created
-    // Zero Trust team; it is deterministic from the account.
+    // Zero Trust team; it is deterministic from the account. A custom
+    // hostname replaces it as the Access application's domain only.
     let subdomain = workersSubdomain;
     if (!subdomain) {
       const observed = yield* CfWorkers.getSubdomain({ accountId }).pipe(
@@ -249,7 +260,7 @@ const resolveSelfHostAccess = (
         applicationId: "SelfHostAccess",
         policyName: `open-seo ${stage} self-host users`,
         applicationName: `open-seo ${stage}`,
-        domain: `${workerName(stage)}.${subdomain}`,
+        domain: customDomains[0] ?? `${workerName(stage)}.${subdomain}`,
         emails: allowedEmails,
       });
       policyAud = application.aud;
@@ -315,6 +326,10 @@ export default Alchemy.Stack(
     );
     const databaseProvider = yield* optionalVar("DATABASE_PROVIDER");
     const workersSubdomain = yield* readWorkersSubdomain({ required: false });
+    const selfHostDomains = prod ? [] : yield* readSelfHostDomains();
+    const selfHostLocationHint = prod
+      ? undefined
+      : yield* readSelfHostLocationHint();
 
     // Auth needs an absolute BETTER_AUTH_URL. Prod sets it explicitly;
     // previews always derive it from the deterministic worker name — a wrong
@@ -338,6 +353,8 @@ export default Alchemy.Stack(
           ),
         );
       }
+    } else if (selfHostDomains[0]) {
+      authUrl = `https://${selfHostDomains[0]}`;
     } else if (workersSubdomain) {
       authUrl = `https://${workerName(stage)}.${workersSubdomain}`;
     } else if (authMode === "hosted") {
@@ -356,11 +373,12 @@ export default Alchemy.Stack(
       stage,
       authMode === "cloudflare_access" && !prod,
       workersSubdomain,
+      selfHostDomains,
     );
 
     // Created once and bound into BOTH workers — they share the same
     // D1/KV/R2 (and prod Hyperdrive). OAUTH_KV stays app-worker-only.
-    const resources = makeResources(stage);
+    const resources = makeResources(stage, selfHostLocationHint);
     const prodHyperdrive = prod ? makeHyperdrive() : undefined;
 
     // Aux worker: the site-audit engine (src/audit-worker.ts) — the
@@ -422,8 +440,16 @@ export default Alchemy.Stack(
 
     const app = yield* Cloudflare.Worker("open-seo", {
       name: workerName(stage),
-      // Prod serves the real domains; the zone is inferred from the hostname.
-      domain: prod ? ["app.openseo.so", "www.app.openseo.so"] : undefined,
+      // Prod serves the real domains; self-hosts pass theirs via
+      // SELFHOST_DOMAIN. The zone is inferred from the hostname either way.
+      domain: prod
+        ? ["app.openseo.so", "www.app.openseo.so"]
+        : selfHostDomains.length > 0
+          ? selfHostDomains
+          : undefined,
+      // A self-host with its own hostname has no reason to also answer on
+      // workers.dev — that hostname sits outside the Access application.
+      ...(selfHostDomains.length > 0 ? { url: false } : {}),
       // Prebuilt worker from `vite build` (@cloudflare/vite-plugin). The entry
       // exports the DO + WorkflowEntrypoint classes (re-exported by
       // src/server.ts), which `bundle: false` requires. Sibling chunks under
@@ -523,6 +549,10 @@ export default Alchemy.Stack(
       Alchemy.RemovalPolicy.retain(prod),
     );
 
-    return { url: app.url.as<string>() };
+    return {
+      url: selfHostDomains[0]
+        ? `https://${selfHostDomains[0]}`
+        : app.url.as<string>(),
+    };
   }),
 );
