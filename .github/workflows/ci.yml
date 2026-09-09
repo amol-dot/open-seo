@@ -11,11 +11,15 @@ concurrency:
   cancel-in-progress: true
 
 # Branch protection: the "Required status checks" for `main` must include:
-#   - "Lint / Typecheck / Test / Build (root)"  (job: ci)
-#   - "Website typecheck + build"               (job: web)
-#   - "Self-host Docker image build"            (job: docker-build)
+#   - "Lint / Typecheck / Test / Build (root)"   (job: ci)
+#   - "Website typecheck + build"                 (job: web)
+#   - "Self-host Docker image build"              (job: docker-build)
 # GitHub branch-protection settings are configured in the repo settings
 # UI; this comment is the canonical reminder for whoever sets it up.
+#
+# The web job now also enforces `pnpm --dir web run format:check`
+# (reconciled in BUS-42). Branch protection doesn't list this as a
+# separate check — it rides on the "Website typecheck + build" job.
 
 jobs:
   ci:
@@ -96,11 +100,12 @@ jobs:
       - name: Install website dependencies
         run: pnpm --dir web install --frozen-lockfile
 
-      # Web prettier (`pnpm --dir web run format:check`) is intentionally
-      # NOT a required check yet — `web/` has 252 pre-existing formatting
-      # violations on `main`, so adding the gate now would make the web
-      # job red from day one. Tracked as a separate follow-up; once web/
-      # is reconciled, drop this comment and add the gate.
+      # Formatting gate for `web/`. Reconciled in BUS-42
+      # (`ctof/bus42-web-prettier-reconcile`): `pnpm --dir web run
+      # format:check` returns 0 violations as of that PR. Any new
+      # reintroduction will fail this job and block the PR.
+      - name: Lint website (formatting)
+        run: pnpm --dir web run format:check
 
       - name: Typecheck website
         run: pnpm --dir web run types:check
