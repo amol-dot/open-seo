@@ -1,4 +1,9 @@
 {
+"engines": {
+  "node": ">=22.12.0"
+}
+
+  
   "name": "open-seo",
   "private": true,
   "sideEffects": false,
