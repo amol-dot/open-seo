@@ -1,6 +1,2 @@
-[build]
-builder = "nixpacks"
-buildCommand = "npm run build"
-
-[deploy]
-startCommand = "node dist/server/index.js"
+[env]
+BETTER_AUTH_URL = "https://dash.hma.clinic"
