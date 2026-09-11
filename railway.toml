@@ -1,2 +1,13 @@
-[env]
-BETTER_AUTH_URL = "https://your-temporary-railway-url.up.railway.app"
+# Set application variables in Railway's Variables tab.
+# See docs/SELF_HOSTING_RAILWAY.md for authentication and persistent storage.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.selfhost"
+
+[deploy]
+startCommand = "sh docker-entrypoint.sh"
+healthcheckPath = "/api/health"
+# The entrypoint migrates and builds before opening the HTTP listener.
+healthcheckTimeout = 600
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

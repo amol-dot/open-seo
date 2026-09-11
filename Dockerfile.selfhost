@@ -3,6 +3,8 @@ FROM node:22
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
+# Forward container variables to Workers when running outside Docker Compose.
+ENV CLOUDFLARE_INCLUDE_PROCESS_ENV=true
 
 WORKDIR /app
 
